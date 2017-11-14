@@ -24,6 +24,8 @@ module OO
         UPDATEONLY = 1
         APPHOST_PATH = "MACHINE/WEBROOT/APPHOST"
         APPLICATION = "Application"
+        SITE_SECTION = "system.applicationHost/sites"
+        SITE = "Site"
       end
 
       class << self
@@ -263,7 +265,6 @@ module OO
         admin_manager.CommitPath = APPHOST_PATH
         section = admin_manager.GetAdminSection(section, APPHOST_PATH)
         yield section
-
       end
 
       def site_writable_section_for(section, site_name, &block)
@@ -271,7 +272,6 @@ module OO
         site_path = "#{APPHOST_PATH}/#{site_name}"
         section = admin_manager.GetAdminSection(section, site_path)
         yield section
-
         admin_manager.CommitChanges
         reload
       end

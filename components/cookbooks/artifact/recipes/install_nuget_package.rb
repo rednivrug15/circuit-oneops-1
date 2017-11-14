@@ -29,7 +29,7 @@ Chef::Log.info "The package_version is #{node['workorder']['rfcCi']['ciAttribute
 package_path = ::File.join(output_directory,"#{package_name}.#{version}")
 
 [output_directory, ::File.join(application.physical_path, package_name)].each do |path|
-  directory path do path
+  directory path do
      action :delete
      recursive true
   end
