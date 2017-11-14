@@ -1,5 +1,6 @@
 require "ostruct"
 require_relative "ext_kernel"
+require_relative "iis_web_app"
 
 module OO
   class IIS
@@ -8,9 +9,11 @@ module OO
       class NullEntity < OpenStruct
         def nil?; true; end
         def Delete_(*attrs, &block); end
+        def Count; 0; end
       end
 
       silence_warnings do
+        APPHOST_PATH = "MACHINE/WEBROOT/APPHOST"
         SITE_SECTION = "system.applicationHost/sites"
         SITE = "Site"
       end
@@ -23,6 +26,16 @@ module OO
 
       def reload
         @entity = @web_administration.find(SITE, @name) || NullEntity.new
+        @admin_manager = WIN32OLE.new("Microsoft.ApplicationHost.WritableAdminManager")
+        @admin_manager.CommitPath = APPHOST_PATH
+        @sites_collection = @admin_manager.GetAdminSection(SITE_SECTION, APPHOST_PATH).Collection
+        @web_site = find_site(@name) || NullEntity.new
+        @application_collection = @web_site.Collection
+      end
+
+      def find_site(site_name)
+        position = (0..(@sites_collection.Count-1)).find { |i| site_collection.Item(i).GetPropertyByName("name").Value == site_name }
+        @sites_collection.Item(position)
       end
 
       def exists?
@@ -45,6 +58,38 @@ module OO
         @web_administration.delete(SITE, @name).tap { reload }
       end
 
+      def get_application path
+        application_element = @application_collection.Item(get_application_postion(path))
+        WebApp.new(application_element).application_attributes
+      end
+
+      def application_exists? path
+        !get_application_postion(path).nil?
+      end
+
+      def get_application_postion path
+        (0..(@application_collection.Count-1)).find { |i| @application_collection.Item(i).Properties.Item("path").Value == path }
+      end
+
+      def create_application attributes
+        application_element = @application_collection.CreateNewElement("application")
+        WebApp.new(application_element).create(attributes)
+        @application_collection.AddElement(application_element)
+        @admin_manager.CommitChanges
+      end
+
+      def update_application attributes
+        application_element = @application_collection.Item(get_application_postion(attributes["application_path"]))
+        WebApp.new(application_element).update(attributes)
+        @admin_manager.CommitChanges
+      end
+
+      def delete_application path
+        @application_collection.DeleteElement(get_application_postion(application_path))
+        @admin_manager.CommitChanges
+      end
+
+=begin
       def resource_needs_change(attributes)
         update_attributes = Hash.new({})
         bindings = []
@@ -86,18 +131,37 @@ module OO
         end
         update_attributes.empty?
       end
+=end
 
-      protected
+      def assign_attributes_on_create attributes
+        reload
+        @web_site = @sites_collection.CreateNewElement("site")
+        @web_site.Properties.Item("name").Value = @name
+        @web_site.Properties.Item("id").Value = attributes["id"]
+        @web_site.Properties.Item("serverAutoStart").Value = attributes["server_auto_start"]
+        bindings_collection = site_element.ChildElements.Item("bindings").Collection
+        attributes["bindings"].each do |site_binding|
+          binding_element = bindings_collection.CreateNewElement("binding")
+          binding_element.Properties.Item("protocol").Value = site_binding["protocol"]
+          binding_element.Properties.Item("bindingInformation").Value = site_binding["binding_information"]
+          bindings_collection.AddElement(binding_element)
+          if site_binding["protocol"] == 'https' && !attributes["certificate_hash"].empty?
+            add_ssl_certificate(binding_element, attributes)
+          end
+        end
+        @application_collection = @web_site.Collection
+        create_application attributes
+        @sites_collection.AddElement(@web_site)
+        @admin_manager.CommitChanges
+      end
 
-
-      def assign_attributes_on_create(attributes)
-        @web_administration.writable_section_for(SITE_SECTION) do |sites_section|
-          sites_collection = sites_section.Collection
-          site_element = sites_collection.CreateNewElement("site")
-          site_element.Properties.Item("name").Value = @name
-          site_element.Properties.Item("id").Value = attributes["id"]
-          site_element.Properties.Item("serverAutoStart").Value = attributes["server_auto_start"]
-          bindings_collection = site_element.ChildElements.Item("bindings").Collection
+      def assign_attributes_on_update(attributes)
+        reload
+        @web_site.Properties.Item("id").Value = attributes["id"] if attributes.has_key?("id")
+        @web_site.Properties.Item("serverAutoStart").Value = attributes["server_auto_start"] if attributes.has_key?("server_auto_start")
+        if attributes.has_key?("bindings")
+          bindings_collection = site.ChildElements.Item("bindings").Collection
+          bindings_collection.Clear
           attributes["bindings"].each do |site_binding|
             binding_element = bindings_collection.CreateNewElement("binding")
             binding_element.Properties.Item("protocol").Value = site_binding["protocol"]
@@ -107,54 +171,9 @@ module OO
               add_ssl_certificate(binding_element, attributes)
             end
           end
-          site_collection = site_element.Collection
-          application_element = site_collection.CreateNewElement("application")
-          application_element.Properties.Item("path").Value = attributes["application_path"]
-          application_element.Properties.Item("applicationPool").Value = attributes["application_pool"]
-          application_collection = application_element.Collection
-          virtual_directory_element = application_collection.CreateNewElement("virtualDirectory")
-          virtual_directory_element.Properties.Item("path").Value = attributes["virtual_directory_path"]
-          virtual_directory_element.Properties.Item("physicalPath").Value = attributes["virtual_directory_physical_path"]
-          application_collection.AddElement(virtual_directory_element)
-          site_collection.AddElement(application_element)
-          sites_collection.AddElement(site_element)
         end
-        reload
-      end
-
-      def assign_attributes_on_update(attributes)
-        @web_administration.writable_section_for(SITE_SECTION) do |section|
-          collection = section.Collection
-          position = (0..(collection.Count-1)).find { |i| collection.Item(i).GetPropertyByName("name").Value == @name }
-          site = collection.Item(position)
-          site.Properties.Item("id").Value = attributes["id"] if attributes.has_key?("id")
-          site.Properties.Item("serverAutoStart").Value = attributes["server_auto_start"] if attributes.has_key?("server_auto_start")
-          if attributes.has_key?("bindings")
-            bindings_collection = site.ChildElements.Item("bindings").Collection
-            bindings_collection.Clear
-            attributes["bindings"].each do |site_binding|
-              binding_element = bindings_collection.CreateNewElement("binding")
-              binding_element.Properties.Item("protocol").Value = site_binding["protocol"]
-              binding_element.Properties.Item("bindingInformation").Value = site_binding["binding_information"]
-              bindings_collection.AddElement(binding_element)
-              if site_binding["protocol"] == 'https' && !attributes["certificate_hash"].empty?
-                add_ssl_certificate(binding_element, attributes)
-              end
-            end
-          end
-          applications = site.Collection
-          (0..(applications.Count-1)).each do |i|
-            app_element = applications.Item(i)
-            app_element.Properties.Item("applicationPool").Value = attributes["application_pool"] if attributes.has_key?("application_pool")
-            virtual_dirs = app_element.Collection
-            (0..(virtual_dirs.Count-1)).each do |i|
-              virtual_directory = virtual_dirs.Item(i)
-              virtual_directory.Properties.Item("physicalPath").Value = attributes["virtual_directory_physical_path"] if attributes.has_key?("virtual_directory_physical_path")
-              virtual_directory.Properties.Item("path").Value = attributes["virtual_directory_path"] if attributes.has_key?("virtual_directory_path")
-            end
-          end
-        end
-        reload
+        update_application attributes
+        @admin_manager.CommitChanges
       end
 
       def add_ssl_certificate(binding_element, attributes)
