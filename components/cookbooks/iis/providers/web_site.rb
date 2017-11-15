@@ -1,4 +1,6 @@
-PROPERTIES = ["name", "id", "server_auto_start", "bindings", "virtual_directory_path", "virtual_directory_physical_path", "application_path", "application_pool", "certificate_hash", "certificate_store_name" ]
+SITE_PROPERTIES = ["name", "id", "server_auto_start", "bindings", "certificate_hash", "certificate_store_name" ]
+APPLICATION_PROPERTIES = ["application_path", "application_pool"]
+VIRTUAL_DIRECTORY_PROPERTIES = ["virtual_directory_path", "virtual_directory_physical_path"]
 
 def whyrun_supported?
   true
@@ -12,13 +14,23 @@ private :iis_available?
 def load_current_resource
   @current_resource = new_resource.class.new(new_resource.name)
   @web_site = OO::IIS.new.web_site(new_resource.name)
+  assign_attributes_to_current_resource if @web_site.exists?
 end
 
 def assign_attributes_to_current_resource
-  PROPERTIES.each do |property_name|
-    value = @web_site.send(property_name)
-    current_resource.send(property_name, value)
+  web_site_element = @web_site.get_site_properties
+  SITE_PROPERTIES.each { |property_name| @current_resource.send(property_name, web_site_element[property_name]) }
+  root_application = @web_site.get_application(new_resource.application_path)
+  APPLICATION_PROPERTIES.each { |property_name| @current_resource.send(property_name), root_application[property_name] }
+  root_application["virtual_directory"].each do |virtual_directory|
+    if virtual_directory["virtual_directory_path"] == new_resource.virtual_directory_path
+      VIRTUAL_DIRECTORY_PROPERTIES.each { |property_name| @current_resource.send(property_name, virtual_directory[property_name]) }
+    end
   end
+end
+
+def attribute_needs_change? property_name
+  @current_resource.send(property_name) != new_resource.send(property_name)
 end
 
 def define_resource_requirements
@@ -53,7 +65,8 @@ end
 action :update do
   modified = false
   if @web_site.exists?
-    if not @web_site.resource_needs_change(get_attributes)
+    attributes = get_attributes
+    if not attributes.empty?
       converge_by("updating web site properties for #{new_resource.name}\n") do
         status = @web_site.update(get_attributes)
         if status
@@ -81,10 +94,27 @@ action :delete do
   end
 end
 
+def get_virtual_directory_attributes
+  attributes = Hash.new({})
+  VIRTUAL_DIRECTORY_PROPERTIES.each { |property_name| attributes[property_name] = new_resource.send(property_name) if attribute_needs_change?(property_name) }
+  attributes["virtual_directory_path"] = new_resource.send("virtual_directory_path") unless attributes.empty?
+  attributes
+end
+
+
+def get_application_attributes
+  attributes = Hash.new({})
+  APPLICATION_PROPERTIES.each { |property_name| attributes[property_name] = new_resource.send(property_name) if attribute_needs_change?(property_name) }
+  virtual_directory_attributes = get_virtual_directory_attributes
+  attributes["virtual_directory"] = virtual_directory_attributes unless virtual_directory_attributes.empty?
+  attributes["application_path"] = new_resource.send("application_path") unless attributes.empty?
+  attributes
+end
+
 def get_attributes
   attributes = Hash.new({})
-  PROPERTIES.each do |property_name|
-    attributes[property_name] = new_resource.send(property_name)
-  end
+  SITE_PROPERTIES.each { |property_name| attributes[property_name] = new_resource.send(property_name) if attribute_needs_change?(property_name) }
+  application_attributes = get_application_attributes
+  attributes["application"] = application_attributes unless application_attributes.empty?
   attributes
 end
