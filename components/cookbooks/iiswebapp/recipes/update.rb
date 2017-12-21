@@ -1,1 +1,1 @@
-include_recipe 'iis-webapp::add'
+include_recipe 'iiswebapp::add'

@@ -240,6 +240,21 @@ resource "nuget-package",
     }
   }
 
+resource "iiswebapp",
+  :cookbook      => "oneops.1.iiswebapp",
+  :design        => true,
+  :requires      => {
+    :constraint  => "0..*",
+    :help        => "Installs web applications"
+  },
+  :attributes       => {
+     :package_name                => '',
+     :repository_url              => '',
+     :version                     => 'latest',
+     :application_path            => '',
+     :create_new_application_pool => 'true'
+}
+
 resource "windowsservice",
   :cookbook     => "oneops.1.windowsservice",
   :design       => true,
@@ -316,6 +331,7 @@ resource "volume",
   { :from => 'taskscheduler',  :to => 'volume' },
   { :from => 'iis-website', :to => 'volume' },
   { :from => 'nuget-package', :to => 'iis-website' },
+  { :from => 'iiswebapp', :to => 'iis-website' },
   { :from => 'windowsservice', :to => 'iis-website' },
   { :from => 'dotnetframework', :to => 'os' },
   { :from => 'chocolatey-package', :to => 'volume' },
