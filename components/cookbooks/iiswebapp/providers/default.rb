@@ -24,14 +24,14 @@ def assign_attributes_to_current_resource
   application_element = @web_site.get_application(new_resource.application_path)
   APPLICATION_PROPERTIES.each { |property_name| @current_resource.send(property_name, application_element[property_name]) }
   application_element["virtual_directories"].each do |virtual_directory|
-    Chef::Log.info "Attributes are #{virtual_directory["virtual_directory_path"]} and #{virtual_directory["virtual_directory_physical_path"]} and #{new_resource.virtual_directory_path} and #{new_resource.virtual_directory_physical_path}"
-    VIRTUAL_DIRECTORY_PROPERTIES.each { |property_name| @current_resource.send(property_name, virtual_directory[property_name]) } if virtual_directory["virtual_directory_path"] == new_resource.virtual_directory_path
+    if virtual_directory["virtual_directory_path"] == new_resource.virtual_directory_path
+      VIRTUAL_DIRECTORY_PROPERTIES.each { |property_name| @current_resource.send(property_name, virtual_directory[property_name]) }
+    end
   end
 end
 
 
 def attribute_needs_change? property_name
-  puts "Current resource is #{@current_resource.send(property_name)} , new resource is #{@new_resource.send(property_name)} and property name is #{property_name}"
   @current_resource.send(property_name) != new_resource.send(property_name)
 end
 
@@ -42,6 +42,7 @@ action :create do
     attributes = get_attributes
     converge_by("creating application #{new_resource.application_path}") do
       @web_site.create_application attributes
+      @web_site.commit_changes
       Chef::Log.info "Successfully created new application #{new_resource.application_path}."
       new_resource.updated_by_last_action(true)
     end
@@ -57,6 +58,7 @@ action :update do
     else
       converge_by("Updating application #{new_resource.application_path}") do
         @web_site.update_application attributes
+        @web_site.commit_changes
         Chef::Log.info "Successfully updated application #{new_resource.application_path}."
         new_resource.updated_by_last_action(true)
       end

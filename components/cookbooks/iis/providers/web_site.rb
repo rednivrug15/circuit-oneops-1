@@ -21,8 +21,9 @@ def assign_attributes_to_current_resource
   web_site_element = @web_site.get_site_properties
   SITE_PROPERTIES.each { |property_name| @current_resource.send(property_name, web_site_element[property_name]) }
   root_application = @web_site.get_application(new_resource.application_path)
-  APPLICATION_PROPERTIES.each { |property_name| @current_resource.send(property_name), root_application[property_name] }
-  root_application["virtual_directory"].each do |virtual_directory|
+  Chef::Log.warn "Root application is #{root_application}"
+  APPLICATION_PROPERTIES.each { |property_name| @current_resource.send(property_name, root_application[property_name]) }
+  root_application["virtual_directories"].each do |virtual_directory|
     if virtual_directory["virtual_directory_path"] == new_resource.virtual_directory_path
       VIRTUAL_DIRECTORY_PROPERTIES.each { |property_name| @current_resource.send(property_name, virtual_directory[property_name]) }
     end
@@ -30,6 +31,7 @@ def assign_attributes_to_current_resource
 end
 
 def attribute_needs_change? property_name
+  Chef::Log.info "Attribute is #{@current_resource.send(property_name)} and #{new_resource.send(property_name)}"
   @current_resource.send(property_name) != new_resource.send(property_name)
 end
 
@@ -45,12 +47,14 @@ def define_resource_requirements
     a.failure_message("web site #{new_resource.name} doesn't exist")
     a.whyrun("web site #{new_resource.name} would be created")
   end
+
 end
 
 action :create do
   unless @web_site.exists?
     converge_by("creating web site #{new_resource.name}") do
       status = @web_site.create(get_attributes)
+      @web_site.commit_changes
       if status
         @web_site.start
         Chef::Log.info "Created web site #{new_resource.name}"
@@ -69,6 +73,7 @@ action :update do
     if not attributes.empty?
       converge_by("updating web site properties for #{new_resource.name}\n") do
         status = @web_site.update(get_attributes)
+        @web_site.commit_changes
         if status
           @web_site.start
           Chef::Log.info "Updated web site #{new_resource.name}"

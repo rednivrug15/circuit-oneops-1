@@ -17,7 +17,6 @@ module OO
         end
 
         def create attributes
-          puts "Application path is #{attributes}"
           @application.Properties.Item("path").Value = attributes["application_path"]
           assign_attributes_to_application(attributes)
         end

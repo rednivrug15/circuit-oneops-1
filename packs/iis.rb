@@ -215,6 +215,21 @@ resource "nuget-package",
     }
   }
 
+resource "iiswebapp",
+  :cookbook      => "oneops.1.iiswebapp",
+  :design        => true,
+  :requires      => {
+    :constraint  => "0..*",
+    :help        => "Installs web applications"
+  },
+  :attributes       => {
+     :package_name                => '',
+     :repository_url              => '',
+     :version                     => 'latest',
+     :application_path            => '',
+     :create_new_application_pool => 'true'
+}
+
 resource "windowsservice",
   :cookbook     => "oneops.1.windowsservice",
   :design       => true,
@@ -291,6 +306,7 @@ resource "volume",
   { :from => 'taskscheduler',  :to => 'volume' },
   { :from => 'iis-website', :to => 'volume' },
   { :from => 'nuget-package', :to => 'iis-website' },
+  { :from => 'iiswebapp', :to => 'iis-website' },
   { :from => 'windowsservice', :to => 'iis-website' },
   { :from => 'dotnetframework', :to => 'os' },
   { :from => 'chocolatey-package', :to => 'volume' } ].each do |link|
@@ -307,7 +323,7 @@ relation "iis-website::depends_on::certificate",
   :to_resource => 'certificate',
   :attributes => {"propagate_to" => "from", "flex" => false, "min" => 1, "max" => 1}
 
-[ 'iis-website', 'taskscheduler', 'dotnetframework', 'nuget-package', 'windowsservice' , 'chocolatey-package' , 'volume', 'os' ].each do |from|
+[ 'iis-website', 'taskscheduler', 'dotnetframework', 'nuget-package', 'windowsservice' , 'chocolatey-package' , 'volume', 'os', 'iiswebapp' ].each do |from|
   relation "#{from}::managed_via::compute",
     :except => [ '_default' ],
     :relation_name => 'ManagedVia',
